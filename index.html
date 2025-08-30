@@ -89,13 +89,15 @@
   <label for="filterSelect">Choose Filter</label>
   <select id="filterSelect">
     <option value="" disabled selected>-- Select Filter --</option>
-    <option value="old">Old Photo</option>
-    <option value="negative">Negative</option>
-    <option value="reverse">Reverse Colors</option>
+    <option value="vintage">Vintage</option>
     <option value="grayscale">Grayscale</option>
-    <option value="night">Night (Moonlight)</option>
-    <option value="dslr">DSLR</option>
+    <option value="sunlight">Sunlight</option>
+    <option value="moonlight">Moonlight</option>
+    <option value="cartoon">Cartoon</option>
+    <option value="fog">Fog</option>
     <option value="ghost">Ghost</option>
+    <option value="negative">Negative</option>
+    <option value="reverse">Reverse Colours</option>
   </select>
 
   <button id="applyBtn" disabled>Apply Filter</button>
@@ -117,10 +119,14 @@
 
   let loadedImage = new Image();
 
+  function clamp(val) {
+    return Math.min(255, Math.max(0, val));
+  }
+
   function checkEnableButtons() {
     const enabled = preview.src && preview.style.display !== 'none' && filterSelect.value;
     applyBtn.disabled = !enabled;
-    downloadBtn.disabled = true; // Enable only after applying filter
+    downloadBtn.disabled = true;
   }
 
   imageUpload.addEventListener('change', () => {
@@ -142,6 +148,55 @@
     checkEnableButtons();
   });
 
+  function drawFog(ctx, width, height) {
+    const fogCount = Math.floor(width * height / 15000);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    for (let i = 0; i < fogCount; i++) {
+      const x = Math.random() * width;
+      const y = Math.random() * height;
+      const radius = (Math.random() * 50) + 20;
+      ctx.beginPath();
+      ctx.ellipse(x, y, radius, radius * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function cartoonFilter(imageData) {
+    const width = imageData.width;
+    const height = imageData.height;
+    const data = imageData.data;
+    const newData = new Uint8ClampedArray(data.length);
+
+    function grayscale(i) {
+      return 0.3 * data[i] + 0.59 * data[i+1] + 0.11 * data[i+2];
+    }
+
+    for (let y=0; y < height; y++) {
+      for (let x=0; x < width; x++) {
+        const i = (y * width + x) * 4;
+        const current = grayscale(i);
+        const right = x < width - 1 ? grayscale(i + 4) : current;
+        const down = y < height - 1 ? grayscale(i + width * 4) : current;
+
+        const edge = Math.abs(current - right) + Math.abs(current - down);
+        if (edge > 30) {
+          newData[i] = 0;
+          newData[i+1] = 0;
+          newData[i+2] = 0;
+          newData[i+3] = data[i+3];
+        } else {
+          newData[i] = Math.floor(data[i] / 64) * 64 + 32;
+          newData[i+1] = Math.floor(data[i+1] / 64) * 64 + 32;
+          newData[i+2] = Math.floor(data[i+2] / 64) * 64 + 32;
+          newData[i+3] = data[i+3];
+        }
+      }
+    }
+    for (let i=0; i<data.length; i++) {
+      data[i] = newData[i];
+    }
+  }
+
   applyBtn.addEventListener('click', () => {
     if (!loadedImage.src) return;
 
@@ -157,13 +212,68 @@
     const filter = filterSelect.value;
 
     switch(filter) {
-      case 'old':
+      case 'vintage':
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i], g = data[i+1], b = data[i+2];
-          data[i] = (r * 0.393) + (g * 0.769) + (b * 0.189);
-          data[i+1] = (r * 0.349) + (g * 0.686) + (b * 0.168);
-          data[i+2] = (r * 0.272) + (g * 0.534) + (b * 0.131);
+          data[i] = clamp((r * 0.393) + (g * 0.769) + (b * 0.189));
+          data[i+1] = clamp((r * 0.349) + (g * 0.686) + (b * 0.168));
+          data[i+2] = clamp((r * 0.272) + (g * 0.534) + (b * 0.131));
         }
+        break;
+
+      case 'grayscale':
+        for (let i = 0; i < data.length; i += 4) {
+          const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+          data[i] = data[i+1] = data[i+2] = avg;
+        }
+        break;
+
+      case 'sunlight':
+        for (let i=0; i<data.length; i+=4) {
+          data[i] = clamp(data[i] * 1.15 + 20);
+          data[i+1] = clamp(data[i+1] * 1.05 + 10);
+          data[i+2] = clamp(data[i+2] * 0.9);
+        }
+        break;
+
+      case 'moonlight':
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i+1];
+          const b = data[i+2];
+          let dr = r * 0.2;
+          let dg = g * 0.3;
+          let db = b * 0.6;
+          db = clamp(db + 40);
+          const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          dr = dr * 0.6 + luminance * 0.4;
+          dg = dg * 0.6 + luminance * 0.4;
+          db = db * 0.6 + luminance * 0.4;
+          data[i] = dr;
+          data[i+1] = dg;
+          data[i+2] = db;
+        }
+        break;
+
+      case 'cartoon':
+        cartoonFilter(imageData);
+        break;
+
+      case 'fog':
+        // Fog overlay after drawing image data
+        ctx.putImageData(imageData, 0, 0);
+        drawFog(ctx, canvas.width, canvas.height);
+        // Skip putImageData after to preserve fog overlay
+        preview.src = canvas.toDataURL();
+        result.textContent = `Applied filter: ${filterSelect.options[filterSelect.selectedIndex].text}`;
+        downloadBtn.disabled = false;
+        return;
+
+      case 'ghost':
+        ctx.globalAlpha = 0.6;
+        ctx.drawImage(loadedImage, 10, 10);
+        ctx.globalAlpha = 1;
+        imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         break;
 
       case 'negative':
@@ -182,62 +292,11 @@
         }
         break;
 
-      case 'grayscale':
-        for (let i = 0; i < data.length; i += 4) {
-          const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-          data[i] = data[i+1] = data[i+2] = avg;
-        }
-        break;
-
-      case 'night':
-        // Moonlight effect: darkened, desaturated blue tint, subtle glow
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i+1];
-          const b = data[i+2];
-
-          // Darken colors overall
-          let dr = r * 0.2;
-          let dg = g * 0.3;
-          let db = b * 0.6;
-
-          // Slightly boost blue channel for moonlight tint
-          db = Math.min(db + 40, 255);
-
-          // Apply desaturation by averaging with luminance
-          const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-          dr = dr * 0.6 + luminance * 0.4;
-          dg = dg * 0.6 + luminance * 0.4;
-          db = db * 0.6 + luminance * 0.4;
-
-          data[i] = dr;
-          data[i+1] = dg;
-          data[i+2] = db;
-        }
-        break;
-
-      case 'dslr':
-        for (let i = 0; i < data.length; i += 4) {
-          data[i] = Math.min(Math.max((data[i] - 128) * 1.3 + 128, 0), 255);
-          data[i+1] = Math.min(Math.max((data[i+1] - 128) * 1.3 + 128, 0), 255);
-          data[i+2] = Math.min(Math.max((data[i+2] - 128) * 1.3 + 128, 0), 255);
-        }
-        break;
-
-      case 'ghost':
-        ctx.globalAlpha = 0.6;
-        ctx.drawImage(loadedImage, 10, 10);
-        ctx.globalAlpha = 1;
-        imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        break;
-
       default:
         break;
     }
 
-    if (filter !== 'ghost') {
-      ctx.putImageData(imageData, 0, 0);
-    }
+    ctx.putImageData(imageData, 0, 0);
 
     preview.src = canvas.toDataURL();
     result.textContent = `Applied filter: ${filterSelect.options[filterSelect.selectedIndex].text}`;
