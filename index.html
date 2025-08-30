@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Photo Filter Converter</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f9f9f9;
+    margin: 0;
+    padding: 15px;
+  }
+  .container {
+    max-width: 600px;
+    margin: auto;
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 0 10px #ccc;
+  }
+  h1 {
+    color: #007BFF;
+    text-align: center;
+  }
+  label {
+    margin-top: 15px;
+    display: block;
+    font-weight: bold;
+  }
+  input[type="file"] {
+    width: 100%;
+    padding: 8px;
+    margin-top: 6px;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+  }
+  #preview {
+    margin-top: 15px;
+    max-width: 100%;
+    border-radius: 8px;
+    display: none;
+    box-shadow: 0 0 6px #aaa;
+  }
+  button {
+    margin-top: 20px;
+    width: 100%;
+    padding: 14px;
+    background-color: #007BFF;
+    border: none;
+    color: white;
+    font-size: 18px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button.download-btn {
+    background-color: #28a745;
+    margin-top: 10px;
+  }
+  select {
+    margin-top: 15px;
+    width: 100%;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+  }
+  .result {
+    margin-top: 20px;
+    background: #eef4ff;
+    padding: 15px;
+    border-radius: 8px;
+    font-size: 1rem;
+    color: #333;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Photo Filter Converter</h1>
+
+  <label for="imageUpload">Upload an image file</label>
+  <input type="file" id="imageUpload" accept="image/*" />
+
+  <img id="preview" alt="Image preview" />
+
+  <label for="filterSelect">Choose Filter</label>
+  <select id="filterSelect">
+    <option value="" disabled selected>-- Select Filter --</option>
+    <option value="old">Old Photo</option>
+    <option value="negative">Negative</option>
+    <option value="reverse">Reverse Colors</option>
+    <option value="grayscale">Grayscale</option>
+    <option value="night">Night (Moonlight)</option>
+    <option value="dslr">DSLR</option>
+    <option value="ghost">Ghost</option>
+  </select>
+
+  <button id="applyBtn" disabled>Apply Filter</button>
+  <button id="downloadBtn" class="download-btn" disabled>Download</button>
+
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <div id="result" class="result"></div>
+</div>
+
+<script>
+  const imageUpload = document.getElementById('imageUpload');
+  const preview = document.getElementById('preview');
+  const filterSelect = document.getElementById('filterSelect');
+  const applyBtn = document.getElementById('applyBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const canvas = document.getElementById('canvas');
+  const result = document.getElementById('result');
+
+  let loadedImage = new Image();
+
+  function checkEnableButtons() {
+    const enabled = preview.src && preview.style.display !== 'none' && filterSelect.value;
+    applyBtn.disabled = !enabled;
+    downloadBtn.disabled = true; // Enable only after applying filter
+  }
+
+  imageUpload.addEventListener('change', () => {
+    const file = imageUpload.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+      loadedImage.src = e.target.result;
+      result.textContent = '';
+      checkEnableButtons();
+    };
+    reader.readAsDataURL(file);
+    filterSelect.value = "";
+  });
+
+  filterSelect.addEventListener('change', () => {
+    checkEnableButtons();
+  });
+
+  applyBtn.addEventListener('click', () => {
+    if (!loadedImage.src) return;
+
+    const ctx = canvas.getContext('2d');
+    canvas.width = loadedImage.naturalWidth;
+    canvas.height = loadedImage.naturalHeight;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(loadedImage, 0, 0);
+
+    let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let data = imageData.data;
+    const filter = filterSelect.value;
+
+    switch(filter) {
+      case 'old':
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i+1], b = data[i+2];
+          data[i] = (r * 0.393) + (g * 0.769) + (b * 0.189);
+          data[i+1] = (r * 0.349) + (g * 0.686) + (b * 0.168);
+          data[i+2] = (r * 0.272) + (g * 0.534) + (b * 0.131);
+        }
+        break;
+
+      case 'negative':
+        for (let i = 0; i < data.length; i += 4) {
+          data[i] = 255 - data[i];
+          data[i+1] = 255 - data[i+1];
+          data[i+2] = 255 - data[i+2];
+        }
+        break;
+
+      case 'reverse':
+        for (let i = 0; i < data.length; i += 4) {
+          let r = data[i], b = data[i+2];
+          data[i] = b;
+          data[i+2] = r;
+        }
+        break;
+
+      case 'grayscale':
+        for (let i = 0; i < data.length; i += 4) {
+          const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+          data[i] = data[i+1] = data[i+2] = avg;
+        }
+        break;
+
+      case 'night':
+        // Moonlight effect: darkened, desaturated blue tint, subtle glow
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i+1];
+          const b = data[i+2];
+
+          // Darken colors overall
+          let dr = r * 0.2;
+          let dg = g * 0.3;
+          let db = b * 0.6;
+
+          // Slightly boost blue channel for moonlight tint
+          db = Math.min(db + 40, 255);
+
+          // Apply desaturation by averaging with luminance
+          const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          dr = dr * 0.6 + luminance * 0.4;
+          dg = dg * 0.6 + luminance * 0.4;
+          db = db * 0.6 + luminance * 0.4;
+
+          data[i] = dr;
+          data[i+1] = dg;
+          data[i+2] = db;
+        }
+        break;
+
+      case 'dslr':
+        for (let i = 0; i < data.length; i += 4) {
+          data[i] = Math.min(Math.max((data[i] - 128) * 1.3 + 128, 0), 255);
+          data[i+1] = Math.min(Math.max((data[i+1] - 128) * 1.3 + 128, 0), 255);
+          data[i+2] = Math.min(Math.max((data[i+2] - 128) * 1.3 + 128, 0), 255);
+        }
+        break;
+
+      case 'ghost':
+        ctx.globalAlpha = 0.6;
+        ctx.drawImage(loadedImage, 10, 10);
+        ctx.globalAlpha = 1;
+        imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        break;
+
+      default:
+        break;
+    }
+
+    if (filter !== 'ghost') {
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    preview.src = canvas.toDataURL();
+    result.textContent = `Applied filter: ${filterSelect.options[filterSelect.selectedIndex].text}`;
+    downloadBtn.disabled = false;
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    if (!canvas.toDataURL) return;
+    const link = document.createElement('a');
+    link.download = 'filtered-image.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+</script>
+
+</body>
+  </html>
+  
